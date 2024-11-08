@@ -1,0 +1,110 @@
+services:
+
+  db:
+    image: postgres:14
+    restart: always
+    container_name: database
+    volumes:
+      - app-db-data:/var/lib/postgresql/data/pgdata
+    env_file:
+      - .env
+    environment:
+      - PGDATA=/var/lib/postgresql/data/pgdata
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
+      - POSTGRES_USER=${POSTGRES_USER?Variable not set}
+      - POSTGRES_DB=${POSTGRES_DB?Variable not set}
+    deploy:
+      placement:
+        constraints:
+          - node.labels.app.app-db-data == true
+  
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: pgadmin
+    restart: always
+    depends_on:
+      - db
+    env_file:
+      - .env
+    labels:
+      # Enable Traefik for this specific "backend" service
+      - traefik.enable=true
+      # Define the port inside of the Docker service to use
+      - traefik.http.services.pgadmin.loadbalancer.server.port=5050
+      # Make Traefik use this domain in HTTP
+      - traefik.http.routers.pgadmin-http.entrypoints=http
+      - traefik.http.routers.pgadmin-http.rule=Host(`pgadmin.${DOMAIN?Variable not set}`)
+      # Use the traefik-public network (declared below)
+      - traefik.docker.network=traefik-public
+      # Make Traefik use this domain in HTTPS
+      - traefik.http.routers.pgadmin-https.entrypoints=https
+      - traefik.http.routers.pgadmin-https.rule=Host(`pgadmin.${DOMAIN?Variable not set}`)
+      - traefik.http.routers.pgadmin-https.tls=true
+      # Use the "le" (Let's Encrypt) resolver
+      - traefik.http.routers.pgadmin-https.tls.certresolver=le
+      # Middleware to redirect HTTP to HTTPS
+      - traefik.http.routers.pgadmin-http.middlewares=https-redirect
+    networks:
+      # Use the public network created to be shared between Traefik and
+      # any other service that needs to be publicly available with HTTPS
+      - traefik-public
+      - default
+      
+  backend:
+    build: ./
+    container_name: fastapi
+    restart: always
+    depends_on:
+      - db
+      - pgadmin
+    env_file:
+      - .env
+    environment:
+      - PRE_START_PATH=/app/app/prestart.sh
+      - DOMAIN=${DOMAIN}
+      - ENVIRONMENT=${ENVIRONMENT}
+      - SECRET_KEY=${SECRET_KEY?Variable not set}
+      - POSTGRES_SERVER=db
+      - POSTGRES_PORT=${POSTGRES_PORT}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER?Variable not set}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD?Variable not set}
+      - SQLITE_FILE_NAME=${SQLITE_FILE_NAME?Variable not set}
+      - SMTP_HOST=${SMTP_HOST}
+      - SMTP_USER=${SMTP_USER}
+      - SMTP_PASSWORD=${SMTP_PASSWORD}
+      - EMAILS_FROM_EMAIL=${EMAILS_FROM_EMAIL}
+      - SENTRY_DSN=${SENTRY_DSN}  
+    labels:
+      # Enable Traefik for this specific "backend" service
+      - traefik.enable=true
+      # Define the port inside of the Docker service to use
+      - traefik.http.services.app.loadbalancer.server.port=80
+      # Make Traefik use this domain in HTTP
+      - traefik.http.routers.app-http.entrypoints=http
+      - traefik.http.routers.app-http.rule=Host(`${DOMAIN?Variable not set}`)
+      # Use the traefik-public network (declared below)
+      - traefik.docker.network=traefik-public
+      # Make Traefik use this domain in HTTPS
+      - traefik.http.routers.app-https.entrypoints=https
+      - traefik.http.routers.app-https.rule=Host(`${DOMAIN?Variable not set}`)
+      - traefik.http.routers.app-https.tls=true
+      # Use the "le" (Let's Encrypt) resolver
+      - traefik.http.routers.app-https.tls.certresolver=le
+      # https-redirect middleware to redirect HTTP to HTTPS
+      - traefik.http.middlewares.https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.https-redirect.redirectscheme.permanent=true
+      # Middleware to redirect HTTP to HTTPS
+      - traefik.http.routers.app-http.middlewares=https-redirect
+    networks:
+      # Use the public network created to be shared between Traefik and
+      # any other service that needs to be publicly available with HTTPS
+      - traefik-public
+      - default
+ 
+volumes:
+  app-db-data:
+  
+networks:
+  traefik-public:
+    external: true

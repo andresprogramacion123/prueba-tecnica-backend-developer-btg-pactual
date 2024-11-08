@@ -1,0 +1,19 @@
+services:
+
+  pgadmin:
+    ports:
+      - "5050:5050"
+
+  backend:
+    build:
+      context: ./
+      network: host
+    command: /start-reload.sh
+    ports:
+      - 5000:80
+    volumes:
+      - ./app:/app/app # Analizar si este volumen tiene que estar en etapa de produccion, parece ser que en desarrollo debe estar pero en produccion no
+
+networks:
+  traefik-public:
+    external: false
